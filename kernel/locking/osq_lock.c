@@ -39,9 +39,9 @@ static inline struct optimistic_spin_node *decode_cpu(int encoded_cpu_val)
  * Can return NULL in case we were the last queued and we updated @lock instead.
  */
 static inline struct optimistic_spin_node *
-osq_wait_next(struct optimistic_spin_queue *lock,
-	      struct optimistic_spin_node *node,
-	      struct optimistic_spin_node *prev)
+	osq_wait_next(struct optimistic_spin_queue *lock,
+		      struct optimistic_spin_node *node,
+		      struct optimistic_spin_node *prev)
 {
 	struct optimistic_spin_node *next = NULL;
 	int curr = encode_cpu(smp_processor_id());
@@ -87,8 +87,10 @@ osq_wait_next(struct optimistic_spin_queue *lock,
 	return next;
 }
 
+//
 bool osq_lock(struct optimistic_spin_queue *lock)
 {
+	//optimistic_spin_queueu数据结构中只有一个tail字段
 	struct optimistic_spin_node *node = this_cpu_ptr(&osq_node);
 	struct optimistic_spin_node *prev, *next;
 	int curr = encode_cpu(smp_processor_id());
@@ -104,6 +106,7 @@ bool osq_lock(struct optimistic_spin_queue *lock)
 	 * the node fields we just initialised) semantics when updating
 	 * the lock tail.
 	 */
+	//如果lock->tail的值为OSQ_UNLOCKED_VAL，则代表是第一个来获取锁的，必定会成功
 	old = atomic_xchg(&lock->tail, curr);
 	if (old == OSQ_UNLOCKED_VAL)
 		return true;
@@ -133,7 +136,9 @@ bool osq_lock(struct optimistic_spin_queue *lock)
 	 * guaranteed their existence -- this allows us to apply
 	 * cmpxchg in an attempt to undo our queueing.
 	 */
-
+	//locked代表锁已经被当前noede获取，0代表没有被当前node获取
+	//vcpu是跟虚拟化相关的？
+	//need_resched：代表又其他优先级高的线程来抢占了，或者被调度器重新进行调度了
 	while (!READ_ONCE(node->locked)) {
 		/*
 		 * If we need to reschedule bail... so we can block.
@@ -155,7 +160,7 @@ unqueue:
 	 * unlock()/unqueue() wait for a next pointer since @lock points to us
 	 * (or later).
 	 */
-
+	//将node从list上拿下来：将precv->next 设置从NULL
 	for (;;) {
 		if (prev->next == node &&
 		    cmpxchg(&prev->next, node, NULL) == node)
@@ -166,6 +171,7 @@ unqueue:
 		 * in which case we should observe @node->locked becomming
 		 * true.
 		 */
+		//再判断下有没有获取到锁
 		if (smp_load_acquire(&node->locked))
 			return true;
 
@@ -175,6 +181,7 @@ unqueue:
 		 * Or we race against a concurrent unqueue()'s step-B, in which
 		 * case its step-C will write us a new @node->prev pointer.
 		 */
+		//重新获取prev，防止其他地方修改链表
 		prev = READ_ONCE(node->prev);
 	}
 
