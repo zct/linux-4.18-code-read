@@ -87,10 +87,11 @@ static inline struct task_struct *__mutex_trylock_or_owner(struct mutex *lock)
 		unsigned long task = owner & ~MUTEX_FLAGS;
 
 		if (task) {
-			//如果有owenr，并且owner不是自己，跳出循环
+			//如果有owner，并且owner不是自己，跳出循环
 			if (likely(task != curr))
 				break;
 
+			//拥有者那边HANDOFF已经完成，等待被移交的线程来拿锁
 			if (likely(!(flags & MUTEX_FLAG_PICKUP)))
 				break;
 
@@ -106,10 +107,10 @@ static inline struct task_struct *__mutex_trylock_or_owner(struct mutex *lock)
 		 * past the point where we acquire it. This would be possible
 		 * if we (accidentally) set the bit on an unlocked mutex.
 		 */
-		//清除掉handoff 标记，这么做的目的是，如果HANDOFF已经被标记了，这里不应该先获得锁
 		flags &= ~MUTEX_FLAG_HANDOFF;
 
-		//cmpxchg(mem,old,new) 先将mem里的内容与比较，如果相等则将mem里的内容更新为new
+		//cmpxchg(mem,old,new) 先将mem里的内容与old比较，如果相等则将mem里的内容更新为new
+		//返回值为mem里面的值
 		old = atomic_long_cmpxchg_acquire(&lock->owner, owner,
 						  curr | flags);
 		if (old == owner)
@@ -561,6 +562,7 @@ static __always_inline bool mutex_optimistic_spin(struct mutex *lock,
 		 * There's an owner, wait for it to either
 		 * release the lock or go to sleep.
 		 */
+		//如果该owner没有在运行，或者当前竞争者需要被调度出去
 		if (!mutex_spin_on_owner(lock, owner, ww_ctx, waiter))
 			goto fail_unlock;
 
@@ -751,6 +753,7 @@ static inline int __sched __ww_mutex_add_waiter(struct mutex_waiter *waiter,
 /*
  * Lock a mutex (possibly interruptible), slowpath:
  */
+//ww_ctx中的ww为wound wait的缩写，是为了解决在某些场合必须同时持有多个锁，为了解决获取锁的顺序不同而导致的死锁问题
 static __always_inline int __sched __mutex_lock_common(
 	struct mutex *lock, long state, unsigned int subclass,
 	struct lockdep_map *nest_lock, unsigned long ip,
@@ -828,6 +831,7 @@ static __always_inline int __sched __mutex_lock_common(
 		 * before testing the error conditions to make sure we pick up
 		 * the handoff.
 		 */
+		//再尝试拿一下锁
 		if (__mutex_trylock(lock))
 			goto acquired;
 
