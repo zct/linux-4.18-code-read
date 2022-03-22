@@ -5128,6 +5128,7 @@ out_irq:
 }
 EXPORT_SYMBOL_GPL(yield_to);
 
+//in_iowait只有在这个函数里才会被设置?
 int io_schedule_prepare(void)
 {
 	int old_iowait = current->in_iowait;
