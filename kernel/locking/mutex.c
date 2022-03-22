@@ -91,10 +91,14 @@ static inline struct task_struct *__mutex_trylock_or_owner(struct mutex *lock)
 			if (likely(task != curr))
 				break;
 
-			//拥有者那边HANDOFF已经完成，等待被移交的线程来拿锁
+			//这里task已经等于current
+
+			//前面锁的拥有者还没有完成释放的操作(PICKUP标志没有设置），break继续等待
+			//这个条件的判断是多余的?  如果lock-owner有被设置的话，前面一定会设置PICKUP标志
 			if (likely(!(flags & MUTEX_FLAG_PICKUP)))
 				break;
 
+			//去掉pickup标志
 			flags &= ~MUTEX_FLAG_PICKUP;
 		} else {
 #ifdef CONFIG_DEBUG_MUTEXES
@@ -107,6 +111,7 @@ static inline struct task_struct *__mutex_trylock_or_owner(struct mutex *lock)
 		 * past the point where we acquire it. This would be possible
 		 * if we (accidentally) set the bit on an unlocked mutex.
 		 */
+		//去掉HANDOFF标志
 		flags &= ~MUTEX_FLAG_HANDOFF;
 
 		//cmpxchg(mem,old,new) 先将mem里的内容与old比较，如果相等则将mem里的内容更新为new
@@ -595,6 +600,7 @@ fail:
 		 * We _should_ have TASK_RUNNING here, but just in case
 		 * we do not, make it so, otherwise we might get stuck.
 		 */
+		//在进入到这个条件的时候大部分情况下都处于runniing状态
 		__set_current_state(TASK_RUNNING);
 		schedule_preempt_disabled();
 	}
@@ -841,7 +847,7 @@ static __always_inline int __sched __mutex_lock_common(
 		 * against mutex_unlock() and wake-ups do not go missing.
 		 */
 		if (unlikely(signal_pending_state(state, current))) {
-			ret = -EINTR;
+			ret = -EINTR; //没抢到锁，因为信号的原因被唤醒
 			goto err;
 		}
 
@@ -860,18 +866,24 @@ static __always_inline int __sched __mutex_lock_common(
 		 * ww_mutex needs to always recheck its position since its waiter
 		 * list is not FIFO ordered.
 		 */
+		//如果是第一个在等待队列上的，设置HAND_OFF机制，这样锁释放的时候会优先交给该等待者
+		//注意这里是在被唤醒的时候，才设置这个标志的。所以这次被唤醒有可能获取失败，这次失败了并设置上了handoff标记，那么下次锁一定会移交给该进程的
+		//极端情况下存在这里设置的上一个owner的flags，但是在trylock之前，锁已经被其他人抢占了（新的owner上没有HANDOFF标志），反复这样 \
+		//就有饥饿的情况，不过发生的概率比较小
 		if ((use_ww_ctx && ww_ctx) || !first) {
 			first = __mutex_waiter_is_first(lock, &waiter);
 			if (first)
 				__mutex_set_flag(lock, MUTEX_FLAG_HANDOFF);
 		}
 
-		set_current_state(state);
+		set_current_state(
+			state); //后面可能拿锁不成功，所以先设置D/S状态。所以就可能会导致带着这两个状态在osq/owner上自旋?
 		/*
 		 * Here we order against unlock; we must either see it change
 		 * state back to RUNNING and fall through the next schedule(),
 		 * or we must see its unlock and acquire.
 		 */
+		//这里已经有了waiter，在mutex_optimistic_spin自旋的时候，不会加到osq自旋上面，会直接在owner上自旋f
 		if (__mutex_trylock(lock) ||
 		    (first &&
 		     mutex_optimistic_spin(lock, ww_ctx, use_ww_ctx, &waiter)))
