@@ -749,10 +749,12 @@ int file_write_and_wait_range(struct file *file, loff_t lstart, loff_t lend)
 	struct address_space *mapping = file->f_mapping;
 
 	if (mapping_needs_writeback(mapping)) {
+		//该函数只是提交到bio层
 		err = __filemap_fdatawrite_range(mapping, lstart, lend,
 						 WB_SYNC_ALL);
 		/* See comment of filemap_write_and_wait() */
 		if (err != -EIO)
+		//等待文件传输完成，但是也可能是将数据从page cache中传输到了磁盘的写缓存
 			__filemap_fdatawait_range(mapping, lstart, lend);
 	}
 	err2 = file_check_and_advance_wb_err(file);
@@ -3164,7 +3166,7 @@ ssize_t generic_perform_write(struct file *file, struct iov_iter *i, loff_t pos)
 		}
 		pos += copied;
 		written += copied;
-		//如果脏页的数目超过了某个限制，机会触发刷新磁盘的操作，同步还是异步？
+		//如果脏页的数目超过了某个限制，机会触发刷新磁盘的操作，同步和异步都有，主要看脏页的数目
 		balance_dirty_pages_ratelimited(mapping);
 	} while (iov_iter_count(i));
 

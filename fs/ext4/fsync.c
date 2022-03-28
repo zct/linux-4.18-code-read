@@ -125,6 +125,7 @@ int ext4_sync_file(struct file *file, loff_t start, loff_t end, int datasync)
 		goto out;
 	}
 
+	//通过这个函数，数据已经写到了磁盘硬件上，但是OS不知到磁盘有没有写缓存，需要后面再flush下
 	ret = file_write_and_wait_range(file, start, end);
 	if (ret)
 		return ret;
@@ -154,6 +155,7 @@ int ext4_sync_file(struct file *file, loff_t start, loff_t end, int datasync)
 	ret = jbd2_complete_transaction(journal, commit_tid);
 	if (needs_barrier) {
 	issue_flush:
+		//让底层磁盘的缓存进行flush，这样会确保数落盘
 		err = blkdev_issue_flush(inode->i_sb->s_bdev, GFP_KERNEL, NULL);
 		if (!ret)
 			ret = err;
