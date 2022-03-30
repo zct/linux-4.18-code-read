@@ -3063,6 +3063,7 @@ unsigned long long task_sched_runtime(struct task_struct *p)
  * This function gets called by the timer code, with HZ frequency.
  * We call it with interrupts disabled.
  */
+//1ms的周期?
 void scheduler_tick(void)
 {
 	int cpu = smp_processor_id();
@@ -3494,7 +3495,7 @@ static void __sched notrace __schedule(bool preempt)
 		 *   is a RELEASE barrier),
 		 */
 		++*switch_count;
-
+		
 		trace_sched_switch(preempt, prev, next);
 
 		/* Also unlocks the rq: */

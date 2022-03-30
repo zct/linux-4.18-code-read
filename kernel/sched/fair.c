@@ -9216,6 +9216,7 @@ static void rebalance_domains(struct rq *rq, enum cpu_idle_type idle)
 	unsigned long interval;
 	struct sched_domain *sd;
 	/* Earliest time when we have to do rebalance again */
+	//默认的周期是60HZ
 	unsigned long next_balance = jiffies + 60*HZ;
 	int update_next_balance = 0;
 	int need_serialize, need_decay = 0;
@@ -9249,6 +9250,7 @@ static void rebalance_domains(struct rq *rq, enum cpu_idle_type idle)
 			break;
 		}
 
+		//计算当前调度域负载均衡的时间间隔，会考虑cpu是否繁忙以及调度域的时间间隔区间
 		interval = get_sd_balance_interval(sd, idle != CPU_IDLE);
 
 		need_serialize = sd->flags & SD_SERIALIZE;
@@ -9892,6 +9894,7 @@ void trigger_load_balance(struct rq *rq)
 	if (unlikely(on_null_domain(rq)))
 		return;
 
+	//周期性的触发一个负载均衡的软中断
 	if (time_after_eq(jiffies, rq->next_balance))
 		raise_softirq(SCHED_SOFTIRQ);
 
