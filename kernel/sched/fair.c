@@ -9011,6 +9011,8 @@ more_balance:
 			}
 			raw_spin_unlock_irqrestore(&busiest->lock, flags);
 
+			//该逻辑会将run_queue只有1个任务的cpu强制迁移
+			//会唤醒stopper线程来做migration
 			if (active_balance) {
 				stop_one_cpu_nowait(cpu_of(busiest),
 					active_load_balance_cpu_stop, busiest,
@@ -9185,7 +9187,7 @@ out_unlock:
 	rq_unlock(busiest_rq, &rf);
 
 	if (p)
-		attach_one_task(target_rq, p);
+		attach_one_task(target_rq, p)
 
 	local_irq_enable();
 
@@ -9216,7 +9218,6 @@ static void rebalance_domains(struct rq *rq, enum cpu_idle_type idle)
 	unsigned long interval;
 	struct sched_domain *sd;
 	/* Earliest time when we have to do rebalance again */
-	//默认的周期是60HZ
 	unsigned long next_balance = jiffies + 60*HZ;
 	int update_next_balance = 0;
 	int need_serialize, need_decay = 0;
@@ -9260,6 +9261,7 @@ static void rebalance_domains(struct rq *rq, enum cpu_idle_type idle)
 		}
 
 		if (time_after_eq(jiffies, sd->last_balance + interval)) {
+			//load_balance是从其他groups中挑选负载最重的domain、group和CPU，将其上的runnable任务拉到本CPU上以变让系统处于负载均衡的状态
 			if (load_balance(cpu, rq, sd, idle, &continue_balancing)) {
 				/*
 				 * The LBF_DST_PINNED logic could have changed
@@ -9898,6 +9900,7 @@ void trigger_load_balance(struct rq *rq)
 	if (time_after_eq(jiffies, rq->next_balance))
 		raise_softirq(SCHED_SOFTIRQ);
 
+	//通知其他idle cpu进行负载均，本cpu上的任务数比较多
 	nohz_balancer_kick(rq);
 }
 

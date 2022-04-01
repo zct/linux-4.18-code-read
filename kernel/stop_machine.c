@@ -177,6 +177,7 @@ static void ack_state(struct multi_stop_data *msdata)
 }
 
 /* This is the cpu_stop function which stops the CPU. */
+//如果一个死循环的线程长期在一个cpu上跑，会触发该函数
 static int multi_cpu_stop(void *data)
 {
 	struct multi_stop_data *msdata = data;
