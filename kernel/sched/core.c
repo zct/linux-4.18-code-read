@@ -2015,6 +2015,8 @@ try_to_wake_up(struct task_struct *p, unsigned int state, int wake_flags)
 	 * current.
 	 */
 	smp_rmb();
+	//ttwu meaning try to wake up
+	//被唤醒的进程如果已经在cpu运行队列上了，只需要做一些简单的改变进程状态即可
 	if (p->on_rq && ttwu_remote(p, wake_flags))
 		goto stat;
 

@@ -5865,10 +5865,12 @@ static void record_wakee(struct task_struct *p)
  * whatever is irrelevant, spread criteria is apparent partner count exceeds
  * socket size.
  */
+//返回0 表示 want_affine
 static int wake_wide(struct task_struct *p)
 {
 	unsigned int master = current->wakee_flips;
 	unsigned int slave = p->wakee_flips;
+	//能够共享LLC cache的cpu数目
 	int factor = this_cpu_read(sd_llc_size);
 
 	if (master < slave)
@@ -6422,12 +6424,14 @@ static int select_idle_sibling(struct task_struct *p, int prev, int target)
 	struct sched_domain *sd;
 	int i, recent_used_cpu;
 
+	//目标CPU空闲	
 	if (available_idle_cpu(target))
 		return target;
 
 	/*
 	 * If the previous CPU is cache affine and idle, don't be stupid:
 	 */
+	//
 	if (prev != target && cpus_share_cache(prev, target) && available_idle_cpu(prev))
 		return prev;
 
@@ -6449,15 +6453,15 @@ static int select_idle_sibling(struct task_struct *p, int prev, int target)
 	sd = rcu_dereference(per_cpu(sd_llc, target));
 	if (!sd)
 		return target;
-
+	//在LLC域内搜索一个空闲的core，一个空闲的core才是首先的选择? 因为资源更丰富些
 	i = select_idle_core(p, sd, target);
 	if ((unsigned)i < nr_cpumask_bits)
 		return i;
-
+	//在LLC域内搜索一个空闲的CPU
 	i = select_idle_cpu(p, sd, target);
 	if ((unsigned)i < nr_cpumask_bits)
 		return i;
-
+	//在目标core中搜索一个空闲的CPU
 	i = select_idle_smt(p, sd, target);
 	if ((unsigned)i < nr_cpumask_bits)
 		return i;
@@ -6609,6 +6613,8 @@ static int wake_cap(struct task_struct *p, int cpu, int prev_cpu)
  *
  * preempt must be disabled.
  */
+//prev_cpu wakee之前运行的cpu
+//cpu:waker所在的cpu
 static int
 select_task_rq_fair(struct task_struct *p, int prev_cpu, int sd_flag, int wake_flags)
 {
@@ -6619,13 +6625,16 @@ select_task_rq_fair(struct task_struct *p, int prev_cpu, int sd_flag, int wake_f
 	int sync = (wake_flags & WF_SYNC) && !(current->flags & PF_EXITING);
 
 	if (sd_flag & SD_BALANCE_WAKE) {
+		//wakee_flips是task_struct中的一个字段，说明有很多个线程等待着该task去唤醒
 		record_wakee(p);
+		//wake_wide 考虑的因素有wakeer和wakee的wakee_flips，共享LLC的cpu个数
 		want_affine = !wake_wide(p) && !wake_cap(p, cpu, prev_cpu)
 			      && cpumask_test_cpu(cpu, &p->cpus_allowed);
 	}
 
 	rcu_read_lock();
 	for_each_domain(cpu, tmp) {
+		//tmp是domain的描述符
 		if (!(tmp->flags & SD_LOAD_BALANCE))
 			break;
 
@@ -6636,6 +6645,7 @@ select_task_rq_fair(struct task_struct *p, int prev_cpu, int sd_flag, int wake_f
 		if (want_affine && (tmp->flags & SD_WAKE_AFFINE) &&
 		    cpumask_test_cpu(prev_cpu, sched_domain_span(tmp))) {
 			if (cpu != prev_cpu)
+				//选择wakee之前运行的cpu，还是waker的cpu
 				new_cpu = wake_affine(tmp, p, cpu, prev_cpu, sync);
 
 			sd = NULL; /* Prefer wake_affine over balance flags */
@@ -6653,7 +6663,7 @@ select_task_rq_fair(struct task_struct *p, int prev_cpu, int sd_flag, int wake_f
 		new_cpu = find_idlest_cpu(sd, p, cpu, prev_cpu, sd_flag);
 	} else if (sd_flag & SD_BALANCE_WAKE) { /* XXX always ? */
 		/* Fast path */
-
+		//寻找离new_cpu最近的空闲cpu(如果有的话),否则就是target cpu
 		new_cpu = select_idle_sibling(p, prev_cpu, new_cpu);
 
 		if (want_affine)
