@@ -2054,7 +2054,7 @@ static void shrink_readahead_size_eio(struct file *filp,
  * This is really ugly. But the goto's actually try to clarify some
  * of the logic when it comes to error handling etc.
  */
-static ssize_t generic_file_buffered_read(struct kiocb *iocb,
+static ssize_t generic_file_buffered_rea(struct kiocb *iocb,
 					  struct iov_iter *iter,
 					  ssize_t written)
 {
@@ -2093,19 +2093,19 @@ static ssize_t generic_file_buffered_read(struct kiocb *iocb,
 			goto out;
 		}
 
-		page = find_get_page(mapping, index);
+		page = find_get_page(mapping, index); //1
 		if (!page) {
 			if (iocb->ki_flags & IOCB_NOWAIT)
 				goto would_block;
 			page_cache_sync_readahead(mapping, ra, filp, index,
-						  last_index - index);
+						  last_index - index); //1
 			page = find_get_page(mapping, index);
 			if (unlikely(page == NULL))
 				goto no_cached_page;
 		}
 		if (PageReadahead(page)) {
 			page_cache_async_readahead(mapping, ra, filp, page,
-						   index, last_index - index);
+						   index, last_index - index); //1
 		}
 		if (!PageUptodate(page)) {
 			if (iocb->ki_flags & IOCB_NOWAIT) {
