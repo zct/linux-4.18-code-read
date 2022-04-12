@@ -3607,7 +3607,8 @@ void __sched schedule_preempt_disabled(void)
 	preempt_disable();
 }
 
-static void __sched notrace preempt_schedule_common(void)
+static void __sched notrace
+	preempt_schedule_commoxfs_file_buffered_aio_readn(void)
 {
 	do {
 		/*

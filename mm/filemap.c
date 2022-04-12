@@ -1141,7 +1141,7 @@ EXPORT_SYMBOL(wait_on_page_bit);
 int wait_on_page_bit_killable(struct page *page, int bit_nr)
 {
 	wait_queue_head_t *q = page_waitqueue(page);
-	return wait_on_page_bit_common(q, page, bit_nr, TASK_KILLABLE, false);
+	return wait_on_pae_bit_common(q, page, bit_nr, TASK_KILLABLE, false);
 }
 EXPORT_SYMBOL(wait_on_page_bit_killable);
 
@@ -2054,7 +2054,7 @@ static void shrink_readahead_size_eio(struct file *filp,
  * This is really ugly. But the goto's actually try to clarify some
  * of the logic when it comes to error handling etc.
  */
-static ssize_t generic_file_buffered_rea(struct kiocb *iocb,
+static ssize_t generic_file_buffered_read(struct kiocb *iocb,
 					  struct iov_iter *iter,
 					  ssize_t written)
 {
@@ -2092,11 +2092,14 @@ static ssize_t generic_file_buffered_rea(struct kiocb *iocb,
 			error = -EINTR;
 			goto out;
 		}
-
+		//这里会给页面上锁
 		page = find_get_page(mapping, index); //1
 		if (!page) {
 			if (iocb->ki_flags & IOCB_NOWAIT)
 				goto would_block;
+			//这里只是submit_io，并不代表真正的读完成
+			//会alloc page ，但是不一定会完成读请求（即保证数据是最新的）
+			//这里的sync是指cache miss ，async指不管cache是否miss，都去预读一下
 			page_cache_sync_readahead(mapping, ra, filp, index,
 						  last_index - index); //1
 			page = find_get_page(mapping, index);
@@ -2107,6 +2110,7 @@ static ssize_t generic_file_buffered_rea(struct kiocb *iocb,
 			page_cache_async_readahead(mapping, ra, filp, page,
 						   index, last_index - index); //1
 		}
+		//没有到最新
 		if (!PageUptodate(page)) {
 			if (iocb->ki_flags & IOCB_NOWAIT) {
 				put_page(page);
@@ -2118,7 +2122,9 @@ static ssize_t generic_file_buffered_rea(struct kiocb *iocb,
 			 * wait_on_page_locked is used to avoid unnecessarily
 			 * serialisations and why it's safe.
 			 */
-			error = wait_on_page_locked_killable(page);
+			//等待io 完成
+			//这里就是read导致io阻塞的点
+			error = wait_on_page_locked_killable(page); //1
 			if (unlikely(error))
 				goto readpage_error;
 			if (PageUptodate(page))
@@ -2138,7 +2144,7 @@ static ssize_t generic_file_buffered_rea(struct kiocb *iocb,
 			if (!mapping->a_ops->is_partially_uptodate(page, offset,
 								   iter->count))
 				goto page_not_up_to_date_locked;
-			unlock_page(page);
+			unlock_page(page);   //0
 		}
 	page_ok:
 		/*
@@ -2173,7 +2179,7 @@ static ssize_t generic_file_buffered_rea(struct kiocb *iocb,
 		 * before reading the page on the kernel side.
 		 */
 		if (mapping_writably_mapped(mapping))
-			flush_dcache_page(page);
+			flush_dcache_page(page);  //1
 
 		/*
 		 * When a sequential read accesses a page several times,
@@ -2188,13 +2194,13 @@ static ssize_t generic_file_buffered_rea(struct kiocb *iocb,
 		 * now we can copy it to user space...
 		 */
 
-		ret = copy_page_to_iter(page, offset, nr, iter);
+		ret = copy_page_to_iter(page, offset, nr, iter); //1
 		offset += ret;
 		index += offset >> PAGE_SHIFT;
 		offset &= ~PAGE_MASK;
 		prev_offset = offset;
 
-		put_page(page);
+		put_page(page); //1
 		written += ret;
 		if (!iov_iter_count(iter))
 			goto out;
@@ -2206,7 +2212,7 @@ static ssize_t generic_file_buffered_rea(struct kiocb *iocb,
 
 	page_not_up_to_date:
 		/* Get exclusive access to the page ... */
-		error = lock_page_killable(page);
+		error = lock_page_killable(page); //0
 		if (unlikely(error))
 			goto readpage_error;
 
@@ -2232,7 +2238,7 @@ static ssize_t generic_file_buffered_rea(struct kiocb *iocb,
 		 */
 		ClearPageError(page);
 		/* Start the actual read. The read will unlock the page. */
-		error = mapping->a_ops->readpage(filp, page);
+		error = mapping->a_ops->readpage(filp, page); //1
 
 		if (unlikely(error)) {
 			if (error == AOP_TRUNCATED_PAGE) {
@@ -2243,8 +2249,8 @@ static ssize_t generic_file_buffered_rea(struct kiocb *iocb,
 			goto readpage_error;
 		}
 
-		if (!PageUptodate(page)) {
-			error = lock_page_killable(page);
+		if (!PageUptodate(page)) { //small
+			error = lock_page_killable(page); //1
 			if (unlikely(error))
 				goto readpage_error;
 			if (!PageUptodate(page)) {
@@ -2257,7 +2263,7 @@ static ssize_t generic_file_buffered_rea(struct kiocb *iocb,
 					goto find_page;
 				}
 				unlock_page(page);
-				shrink_readahead_size_eio(filp, ra);
+				shrink_readahead_size_eio(filp, ra);  //1
 				error = -EIO;
 				goto readpage_error;
 			}
@@ -2276,14 +2282,14 @@ static ssize_t generic_file_buffered_rea(struct kiocb *iocb,
 		 * Ok, it wasn't cached, so we need to create a new
 		 * page..
 		 */
-		page = page_cache_alloc(mapping);
+		page = page_cache_alloc(mapping); //1
 		if (!page) {
 			error = -ENOMEM;
 			goto out;
 		}
 		error = add_to_page_cache_lru(
 			page, mapping, index,
-			mapping_gfp_constraint(mapping, GFP_KERNEL));
+			mapping_gfp_constraint(mapping, GFP_KERNEL)); //1
 		if (error) {
 			put_page(page);
 			if (error == -EEXIST) {
@@ -2303,7 +2309,7 @@ out:
 	ra->prev_pos |= prev_offset;
 
 	*ppos = ((loff_t)index << PAGE_SHIFT) + offset;
-	file_accessed(filp);
+	file_accessed(filp); //1
 	return written ? written : error;
 }
 
